@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="桃園里長地圖">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#a34238">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<title>桃園里長地圖 v0.3 過嶺地區</title>
+<style>
+:root{
+  --bg: #fbf6ee;
+  --bg-soft: #f3ebdc;
+  --ink: #2a2520;
+  --ink-soft: #5a4f44;
+  --line: #d9cdb5;
+  --accent: #a34238;
+  --accent-deep: #7a2e26;
+  --leaf: #3d6a4a;
+  --leaf-soft: #7a9a83;
+  --gold: #c89243;
+  --paper: #ffffff;
+  --shadow: 0 6px 24px -8px rgba(60,40,20,.25), 0 2px 6px -2px rgba(60,40,20,.12);
+  --v-1:#f4d4c8; --v-2:#e6d5a8; --v-3:#c8d8b8;
+  --v-4:#b8d0d8; --v-5:#d4c0d8; --v-6:#f0c8b0; --v-7:#d8d0a0;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{
+  font-family:"PingFang TC","Microsoft JhengHei","Heiti TC","Noto Sans CJK TC","Noto Sans TC",sans-serif;
+  background:var(--bg);color:var(--ink);
+  -webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;
+  user-select:none;-webkit-user-select:none;
+}
+.topbar{
+  position:fixed;top:0;left:0;right:0;
+  height:calc(56px + env(safe-area-inset-top));
+  padding:env(safe-area-inset-top) 12px 0;
+  background:linear-gradient(180deg,#a34238,#8a3128);
+  color:#fff8ee;display:flex;align-items:center;gap:10px;z-index:100;
+  box-shadow:0 2px 12px -4px rgba(0,0,0,.25);
+}
+.topbar h1{font-size:16px;font-weight:700;letter-spacing:.04em;white-space:nowrap}
+.topbar .sub{font-size:10px;opacity:.7;letter-spacing:.15em;margin-left:2px}
+.search-wrap{flex:1;position:relative;max-width:320px}
+.search-wrap input{
+  width:100%;background:rgba(255,255,255,.18);
+  border:1px solid rgba(255,255,255,.28);color:#fff8ee;
+  padding:8px 12px 8px 32px;border-radius:999px;font-size:14px;
+  outline:none;font-family:inherit;
+}
+.search-wrap input::placeholder{color:rgba(255,248,238,.6)}
+.search-wrap input:focus{background:rgba(255,255,255,.28);border-color:rgba(255,255,255,.6)}
+.search-wrap::before{
+  content:"⚲";position:absolute;left:11px;top:50%;
+  transform:translateY(-50%) rotate(-45deg);font-size:14px;opacity:.65;
+}
+.topbar button{
+  background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28);
+  color:#fff8ee;padding:7px 11px;border-radius:8px;font-size:12px;
+  font-family:inherit;cursor:pointer;white-space:nowrap;
+}
+.topbar button.active{background:var(--gold);color:#3a2a14;border-color:var(--gold);font-weight:700}
+.search-results{
+  position:absolute;top:44px;left:0;right:0;background:var(--paper);
+  border-radius:10px;box-shadow:var(--shadow);max-height:260px;overflow:auto;
+  display:none;border:1px solid var(--line);
+}
+.search-results.show{display:block}
+.search-results .item{
+  padding:10px 14px;color:var(--ink);font-size:14px;
+  border-bottom:1px solid var(--bg-soft);cursor:pointer;
+}
+.search-results .item:hover{background:var(--bg-soft)}
+.search-results .item .meta{font-size:11px;color:var(--ink-soft);margin-top:2px}
+
+.map-wrap{
+  position:fixed;top:calc(56px + env(safe-area-inset-top));
+  left:0;right:0;bottom:0;
+  background:
+    radial-gradient(ellipse at 30% 20%, #f8eedf 0%, transparent 60%),
+    repeating-linear-gradient(135deg, transparent 0, transparent 18px, rgba(180,140,90,.04) 18px, rgba(180,140,90,.04) 19px),
+    var(--bg);
+  overflow:hidden;touch-action:none;
+}
+#mapsvg{width:100%;height:100%;display:block}
+#mapsvg .village{cursor:pointer;transition:opacity .15s ease, filter .15s ease}
+#mapsvg .village:hover{opacity:.85}
+#mapsvg .village.selected{
+  filter:brightness(.92) saturate(1.3) drop-shadow(0 0 6px rgba(163,66,56,.5));
+  stroke:var(--accent);stroke-width:1.4;
+}
+#mapsvg .village-label{
+  font-size:13px;font-weight:600;fill:var(--ink);
+  pointer-events:none;text-anchor:middle;
+  paint-order:stroke;stroke:rgba(251,246,238,.9);
+  stroke-width:3;stroke-linejoin:round;
+}
+/* 道路圖層 */
+#mapsvg .roads{
+  opacity:0; pointer-events:none;
+  transition:opacity .25s ease;
+}
+#mapsvg .roads.show{ opacity:1 }
+#mapsvg .road-line{
+  fill:none; stroke-linecap:round; stroke-linejoin:round;
+  pointer-events:none;
+}
+#mapsvg .road-line.lv1{ stroke:#a83d1f; stroke-width:3.2 }   /* 國道 */
+#mapsvg .road-line.lv2{ stroke:#c66a2e; stroke-width:2.6 }   /* 快速道路 */
+#mapsvg .road-line.lv3{ stroke:#b08a4a; stroke-width:2.0 }   /* 省道/主要 */
+#mapsvg .road-line.lv4{ stroke:#a89570; stroke-width:1.4 }   /* 縣道/次要 */
+#mapsvg .road-line.lv5{ stroke:#b8a888; stroke-width:1.0 }   /* 鄉道 */
+#mapsvg .road-casing{
+  fill:none; stroke:#fbf6ee; stroke-linecap:round; stroke-linejoin:round;
+  pointer-events:none;
+}
+#mapsvg .road-casing.lv1{ stroke-width:5.2 }
+#mapsvg .road-casing.lv2{ stroke-width:4.4 }
+#mapsvg .road-casing.lv3{ stroke-width:3.6 }
+#mapsvg .road-casing.lv4{ stroke-width:2.6 }
+#mapsvg .road-casing.lv5{ stroke-width:1.8 }
+#mapsvg .road-label{
+  font-size:9px; font-weight:600;
+  fill:#5a3e1a; pointer-events:none;
+  paint-order:stroke;
+  stroke:rgba(251,246,238,.95);
+  stroke-width:2.5; stroke-linejoin:round;
+}
+#mapsvg .me-dot{
+  fill:#1d6fcb;stroke:#fff;stroke-width:2;
+  filter:drop-shadow(0 0 6px rgba(29,111,203,.6));
+  animation:pulse 1.5s ease-out infinite;
+}
+@keyframes pulse{
+  0%{r:6}50%{r:9}100%{r:6}
+}
+#mapsvg .me-ring{
+  fill:rgba(29,111,203,.15);stroke:none;
+  animation:ring 2s ease-out infinite;
+}
+@keyframes ring{
+  0%{r:6;opacity:.6}100%{r:30;opacity:0}
+}
+
+.hud{
+  position:absolute;right:12px;
+  bottom:calc(20px + env(safe-area-inset-bottom));
+  display:flex;flex-direction:column;gap:8px;z-index:50;
+}
+.hud button{
+  width:44px;height:44px;border-radius:12px;background:var(--paper);
+  border:1px solid var(--line);color:var(--ink);font-size:20px;
+  font-weight:600;cursor:pointer;box-shadow:var(--shadow);font-family:inherit;
+}
+.hud button:active{transform:scale(.95)}
+.hud .me{font-size:18px;color:#1d6fcb}
+.hud .me.active{background:#1d6fcb;color:#fff;border-color:#1d6fcb}
+
+.title-stamp{
+  position:absolute;top:12px;left:12px;background:var(--paper);
+  padding:8px 14px;border-radius:10px;box-shadow:var(--shadow);
+  border-left:4px solid var(--accent);z-index:40;font-size:13px;
+}
+.title-stamp .name{font-weight:700;font-size:15px;color:var(--accent)}
+.title-stamp .count{font-size:11px;color:var(--ink-soft);letter-spacing:.05em;margin-top:2px}
+
+.legend{
+  position:absolute;left:12px;
+  bottom:calc(20px + env(safe-area-inset-bottom));
+  background:rgba(255,255,255,.92);
+  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+  padding:10px 12px;border-radius:10px;font-size:11px;
+  border:1px solid var(--line);box-shadow:var(--shadow);z-index:40;
+}
+.legend .row{display:flex;align-items:center;gap:8px;margin:3px 0}
+.legend .swatch{width:16px;height:10px;border:1px solid rgba(0,0,0,.15)}
+.legend .swatch.dot{
+  width:10px;height:10px;border-radius:50%;
+  background:#1d6fcb;border:2px solid #fff;
+  box-shadow:0 0 4px rgba(29,111,203,.5);
+}
+
+.scale-bar{
+  position:absolute;right:12px;top:12px;z-index:40;
+  background:rgba(255,255,255,.92);
+  padding:6px 10px;border-radius:8px;
+  font-size:11px;font-family:"SF Mono",monospace;
+  border:1px solid var(--line);
+  display:flex;align-items:center;gap:8px;
+}
+.scale-bar .bar{
+  width:60px;height:6px;
+  background:linear-gradient(90deg, #2a2520 0%, #2a2520 50%, #fff 50%, #fff 100%);
+  border:1px solid #2a2520;
+}
+
+.info-panel{
+  position:fixed;background:var(--paper);z-index:80;
+  display:flex;flex-direction:column;
+  transition:transform .3s cubic-bezier(.32,.72,.36,1);
+  box-shadow:0 -4px 24px -6px rgba(0,0,0,.18);overflow:hidden;
+}
+@media (max-width:768px){
+  .info-panel{
+    left:0;right:0;bottom:0;max-height:70vh;
+    border-radius:16px 16px 0 0;
+    transform:translateY(105%);
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  .info-panel.open{transform:translateY(0)}
+  .info-panel .grip{height:4px;width:40px;background:var(--line);border-radius:2px;margin:8px auto 4px}
+}
+@media (min-width:769px){
+  .info-panel{
+    top:calc(56px + env(safe-area-inset-top));bottom:0;right:0;width:380px;
+    transform:translateX(105%);border-left:1px solid var(--line);
+    box-shadow:-6px 0 24px -8px rgba(0,0,0,.12);
+  }
+  .info-panel.open{transform:translateX(0)}
+  .info-panel .grip{display:none}
+}
+.info-panel .scroll{flex:1;overflow-y:auto;padding:4px 18px 24px;-webkit-overflow-scrolling:touch}
+.info-panel .close-x{
+  position:absolute;top:10px;right:14px;background:var(--bg-soft);
+  border:none;width:30px;height:30px;border-radius:50%;font-size:18px;
+  cursor:pointer;color:var(--ink-soft);z-index:2;
+}
+.v-header{padding:8px 0 14px;border-bottom:1px solid var(--bg-soft);margin-bottom:14px}
+.v-eyebrow{font-size:11px;letter-spacing:.25em;color:var(--ink-soft);margin-bottom:4px}
+.v-name{font-size:28px;font-weight:800;letter-spacing:.02em;color:var(--ink);display:flex;align-items:baseline;gap:8px}
+.v-name .district{font-size:14px;font-weight:500;color:var(--accent);letter-spacing:.08em}
+.section{margin:16px 0}
+.section h3{
+  font-size:11px;letter-spacing:.25em;color:var(--ink-soft);
+  font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:8px;
+}
+.section h3::before{content:"";width:18px;height:1px;background:var(--accent)}
+.section .empty{font-size:12px;color:var(--ink-soft);font-style:italic}
+
+.person{
+  display:flex;align-items:center;gap:12px;padding:10px 12px;
+  background:var(--bg-soft);border-radius:10px;margin-bottom:6px;
+  border-left:3px solid var(--ink-soft);
+}
+.person .avatar{
+  width:40px;height:40px;border-radius:50%;
+  background:linear-gradient(135deg,#c89243,#a36e30);
+  color:#fff8ee;display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:16px;flex-shrink:0;
+}
+.person .body{flex:1;min-width:0}
+.person .name{font-weight:700;font-size:15px}
+.person .role{font-size:11px;color:var(--ink-soft);letter-spacing:.1em;margin-top:1px}
+.person .extra{font-size:12px;color:var(--ink-soft);margin-top:4px}
+.person.incumbent{border-left-color:var(--accent);background:#fbeae6}
+.person.candidate{border-left-color:var(--gold);background:#fdf3df}
+.party{
+  display:inline-block;padding:1px 7px;font-size:10px;border-radius:3px;
+  font-weight:700;letter-spacing:.1em;margin-left:6px;
+}
+.party.kmt{background:#1e3a8a;color:#fff}
+.party.dpp{background:#057a50;color:#fff}
+.party.tpp{background:#14b8c4;color:#fff}
+.party.npp{background:#f59e0b;color:#2a2520}
+.party.indep{background:#6b7280;color:#fff}
+.intro-text{
+  font-size:14px;line-height:1.7;color:var(--ink);
+  background:var(--bg);padding:12px 14px;border-radius:8px;
+  border-left:3px solid var(--leaf-soft);
+}
+.taglist{display:flex;flex-wrap:wrap;gap:6px}
+.taglist .tag{
+  font-size:12px;padding:4px 10px;background:var(--bg);
+  border:1px solid var(--line);border-radius:999px;cursor:pointer;color:var(--ink);
+}
+.taglist .tag:hover{background:var(--bg-soft)}
+.taglist .tag.road{background:#fef2e2;border-color:#e8c595;color:#8a5a1a;cursor:default}
+.taglist .tag.outside{background:#f0ebe2;color:var(--ink-soft);font-style:italic;cursor:default}
+
+.hint{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  background:rgba(42,37,32,.88);color:#fff8ee;
+  padding:14px 22px;border-radius:12px;font-size:14px;
+  pointer-events:none;letter-spacing:.04em;z-index:60;
+  opacity:0;transition:opacity .3s ease;
+}
+.hint.show{opacity:1}
+.mark{
+  position:fixed;bottom:calc(4px + env(safe-area-inset-bottom));
+  right:8px;font-size:10px;color:var(--ink-soft);opacity:.55;
+  z-index:30;pointer-events:none;
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <h1>桃園里長地圖 <span class="sub">v0.3</span></h1>
+  <div class="search-wrap">
+    <input id="search" type="search" placeholder="搜尋里名..." autocomplete="off">
+    <div id="search-results" class="search-results"></div>
+  </div>
+  <button id="toggle-roads" title="顯示主要道路">道路</button>
+</header>
+
+<div class="map-wrap">
+  <svg id="mapsvg" preserveAspectRatio="xMidYMid meet"></svg>
+
+  <div class="title-stamp">
+    <div class="name" id="t-name">過嶺地區</div>
+    <div class="count" id="t-count">中壢區 · 真實里界 · 9 里</div>
+  </div>
+
+  <div class="scale-bar">
+    <div class="bar"></div>
+    <span id="scale-label">— km</span>
+  </div>
+
+  <div class="legend">
+    <div class="row"><span class="swatch" style="background:var(--v-1)"></span>里界 (鄰里異色)</div>
+    <div class="row"><span class="swatch" style="background:#c66a2e;height:3px;width:18px"></span>快速道路 / 主要道路</div>
+    <div class="row"><span class="swatch" style="background:#b8a888;height:2px;width:18px"></span>次要 / 鄉道</div>
+    <div class="row"><span class="swatch dot"></span>目前位置 (需開定位)</div>
+    <div class="row" style="font-size:10px;color:var(--ink-soft);margin-top:6px">
+      資料: 內政部國土測繪 1:10000<br>
+      里長/議員: 2022 九合一公開資料
+    </div>
+  </div>
+
+  <div class="hud">
+    <button id="zoom-in">+</button>
+    <button id="zoom-out">−</button>
+    <button id="reset-view" title="重置">⌂</button>
+    <button id="locate-me" class="me" title="定位">⌖</button>
+  </div>
+
+  <div id="hint" class="hint">點擊任一里查看資訊</div>
+</div>
+
+<aside id="info" class="info-panel">
+  <div class="grip"></div>
+  <button class="close-x" id="close-info">×</button>
+  <div class="scroll" id="info-content"></div>
+</aside>
+
+<div class="mark">offline build · prototype v0.2</div>
+
+<script>
+/* === 嵌入資料 === */
+const DATA = {"meta":{"focus_area":"過嶺地區 (中壢區東半部)","seed_village":"過嶺里","count":9,"bbox":[121.1514502646713,24.95605606002276,121.21985239222582,25.028447236844755],"source":"taiwan-atlas (Daniel Kao) / MOI 村里界圖 1:10000","data_sources":["里界: 內政部國土測繪中心","里長: 桃園電子報 / 桃園市選委會 (2022 九合一當選名單)","議員: 桃園電子報 (第7選區 = 中壢區整區, 11 席)"]},"VILLAGES":[{"id":"中壢_月眉里","name":"月眉里","district":"中壢區","council_district":"第7選區","color":"var(--v-2)","centroid":[121.18638,25.00832],"neighbors":["內厝里","山東里","芝芭里"],"all_neighbors":["內厝里","山東里","洽溪里","芝芭里"],"village_chief":{"name":"邱垂宏","party":"indep","phone":"","office":"","votes":1815},"main_roads":["中山東路三段","月眉路","大崎北街"],"intro":"位於中壢東側,因地形彎曲似月眉得名。山東路、月眉路為主要街道,介於老街溪與三民路之間。"},{"id":"中壢_山東里","name":"山東里","district":"中壢區","council_district":"第7選區","color":"var(--v-3)","centroid":[121.16966,25.00991],"neighbors":["內厝里","月眉里"],"all_neighbors":["內厝里","月眉里"],"village_chief":{"name":"劉來發","party":"indep","phone":"","office":"","votes":913},"main_roads":["新華路","山東路"],"intro":"中壢區面積最大里之一(>5 平方公里),北部農村地帶。山東路一帶有埤塘景觀。"},{"id":"中壢_三民里","name":"三民里","district":"中壢區","council_district":"第7選區","color":"var(--v-2)","centroid":[121.20673,24.97129],"neighbors":["五權里","五福里","內厝里","永光里","芝芭里"],"all_neighbors":["五權里","五福里","光明里","內厝里","新明里","永光里","興和里","芝芭里"],"village_chief":{"name":"陳富豐","party":"indep","phone":"","office":"","votes":724},"main_roads":["中山東路二段","三民路"],"intro":"中壢東部住宅區,鄰桃園機場捷運青埔站。三民路為主動脈,連接中山東路與環中東路。"},{"id":"中壢_內厝里","name":"內厝里","district":"中壢區","council_district":"第7選區","color":"var(--v-1)","centroid":[121.18254,24.98144],"neighbors":["三民里","五權里","山東里","月眉里","芝芭里","過嶺里"],"all_neighbors":["三民里","五權里","山東里","月眉里","芝芭里","過嶺里"],"village_chief":{"name":"劉綵螢","party":"indep","phone":"","office":"","votes":1674},"main_roads":[],"intro":""},{"id":"中壢_過嶺里","name":"過嶺里","district":"中壢區","council_district":"第7選區","color":"var(--v-2)","centroid":[121.16803,24.97284],"neighbors":["內厝里"],"all_neighbors":["內厝里"],"village_chief":{"name":"邱本源","party":"indep","phone":"03-4986990","office":"桃園市中壢區過嶺里6鄰福恩路298號","votes":1977},"main_roads":["過嶺路","台66線聯絡道","中山東路三段"],"intro":"中壢東南郊,鄰平鎮、八德。台 66 線(東西向快速道路觀音-龍潭線)經過,通勤便利。地名「過嶺」來自此地為老街溪上游分水嶺東側。客家聚落,夥房保留多處。"},{"id":"中壢_芝芭里","name":"芝芭里","district":"中壢區","council_district":"第7選區","color":"var(--v-3)","centroid":[121.20556,24.99229],"neighbors":["三民里","內厝里","月眉里"],"all_neighbors":["三民里","內厝里","月眉里","洽溪里","興和里","青埔里"],"village_chief":{"name":"黃連應","party":"indep","phone":"","office":"","votes":2184},"main_roads":[],"intro":""},{"id":"中壢_永光里","name":"永光里","district":"中壢區","council_district":"第7選區","color":"var(--v-1)","centroid":[121.2155,24.97089],"neighbors":["三民里"],"all_neighbors":["三民里","光明里","興和里","興平里"],"village_chief":{"name":"黃雪珍","party":"indep","phone":"","office":"","votes":1681},"main_roads":["永光路"],"intro":""},{"id":"中壢_五權里","name":"五權里","district":"中壢區","council_district":"第7選區","color":"var(--v-3)","centroid":[121.19817,24.96405],"neighbors":["三民里","五福里","內厝里"],"all_neighbors":["三民里","五福里","內厝里"],"village_chief":{"name":"謝浩炎","party":"indep","phone":"","office":"","votes":1654},"main_roads":["五權路","榮民南路"],"intro":"中壢東北郊,五權路、榮民南路一帶,有眷村改建社區。鄰近大園、青埔。"},{"id":"中壢_五福里","name":"五福里","district":"中壢區","council_district":"第7選區","color":"var(--v-1)","centroid":[121.20964,24.95841],"neighbors":["三民里","五權里"],"all_neighbors":["三民里","五權里","新明里","舊明里"],"village_chief":{"name":"林賴玉英","party":"indep","phone":"","office":"","votes":1425},"main_roads":[],"intro":""}],"GEOJSON":{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"VILLNAME":"月眉里","VILLCODE":"68000020047","TOWNNAME":"中壢區","COUNTYNAME":"桃園市"},"geometry":{"type":"Polygon","coordinates":[[[121.19523141414898,25.006934632186688],[121.19485262987087,25.004522527883438],[121.19396879988862,25.001156800948667],[121.19409506131466,24.99574359012858],[121.19381097310608,24.99364001079435],[121.19412662667116,24.991564479184575],[121.19333749275845,24.991564479184575],[121.19330592740194,24.99349977217207],[121.19163296350698,24.99378024941663],[121.19147513672442,24.992321767744897],[121.19049661067265,24.992321767744897],[121.18920243105579,24.99114376331773],[121.18970747675993,24.989853567992736],[121.18835016643006,24.99044257020632],[121.18705598681319,24.98979747254382],[121.18686659467414,24.99049866565523],[121.18560398041379,24.989937711166103],[121.18427823544043,24.98847922949437],[121.18109013443303,24.990302331584036],[121.18102700372002,24.989488947574802],[121.18011160838127,24.989376756676975],[121.17976438945968,24.991115715593274],[121.17894369019044,24.99285467450957],[121.17944873589458,24.993443676723153],[121.18020630445079,24.997342310422596],[121.17979595481619,24.998941030716612],[121.1805535233724,25.000175130592694],[121.18045882730287,25.002306757651382],[121.17989065088571,25.00309209393616],[121.18026943516381,25.003989621118766],[121.1777126412866,25.006261486799737],[121.17853334055583,25.006990727635603],[121.17701820344341,25.00786020709375],[121.17730229165198,25.009458927387765],[121.17629220024371,25.01035645457037],[121.17780733735613,25.01114179085515],[121.17903838625998,25.013273417913837],[121.17963812803363,25.015769665390458],[121.17906995161648,25.019247583223052],[121.18074291551144,25.020313396752396],[121.18036413123333,25.022613310157823],[121.18181613763274,25.025165653083356],[121.18276309832801,25.028447236844755],[121.18326814403214,25.027465566488782],[121.18513050006617,25.026147323439332],[121.18563554577031,25.024464459971945],[121.18535145756172,25.02179992614859],[121.18696129074367,25.0201170626812],[121.18734007502178,25.019247583223052],[121.18727694430876,25.016330619879586],[121.18781355536942,25.015741617666002],[121.19037034924662,25.01871467645838],[121.19377940774957,25.018125674244796],[121.19491576058388,25.014535565514375],[121.19586272127914,25.012179556660037],[121.19579959056612,25.00878578200081],[121.19523141414898,25.006934632186688]]]}},{"type":"Feature","properties":{"VILLNAME":"山東里","VILLCODE":"68000020049","TOWNNAME":"中壢區","COUNTYNAME":"桃園市"},"geometry":{"type":"Polygon","coordinates":[[[121.16211935517127,25.010384502294826],[121.16196152838873,25.011730793068736],[121.16114082911949,25.014367279167637],[121.16196152838873,25.021238971659457],[121.1607936101979,25.024857128114334],[121.16098300233695,25.02575465529694],[121.1622140512408,25.026483896132806],[121.16417110334433,25.027072898346393],[121.16597032866534,25.02825090277356],[121.16859025325556,25.02754970966215],[121.17127330855881,25.02738142331541],[121.1719361810455,25.027661900559977],[121.17319879530585,25.026792421101828],[121.17465080170525,25.027128993795305],[121.1748401938443,25.027213136968676],[121.17610280810466,25.027409471039867],[121.17733385700849,25.024801032665422],[121.17850177519932,25.023903505482817],[121.17853334055583,25.02381936230945],[121.17850177519932,25.0233986464426],[121.18036413123333,25.022613310157823],[121.18074291551144,25.020313396752396],[121.17906995161648,25.019247583223052],[121.17963812803363,25.015769665390458],[121.17903838625998,25.013273417913837],[121.17780733735613,25.01114179085515],[121.17629220024371,25.01035645457037],[121.17730229165198,25.009458927387765],[121.17701820344341,25.00786020709375],[121.17853334055583,25.006990727635603],[121.1777126412866,25.006261486799737],[121.18026943516381,25.003989621118766],[121.17989065088571,25.00309209393616],[121.18045882730287,25.002306757651382],[121.1805535233724,25.000175130592694],[121.17979595481619,24.998941030716612],[121.18020630445079,24.997342310422596],[121.17944873589458,24.993443676723153],[121.17894369019044,24.99285467450957],[121.17976438945968,24.991115715593274],[121.17963812803363,24.990779142899797],[121.17727072629548,24.99184495642914],[121.17578715453956,24.99089133379762],[121.17209400782804,24.99223762457153],[121.17187305033248,24.99192909960251],[121.17180991961946,24.991901051878052],[121.17146270069786,24.99240591091827],[121.16776955398633,24.993527819896524],[121.16666476650853,24.99652892641336],[121.16650693972599,24.998688601196505],[121.1651180640396,25.001886041784534],[121.16492867190055,25.00584077093289],[121.16306631586653,25.00926259331657],[121.16211935517127,25.010384502294826]]]}},{"type":"Feature","properties":{"VILLNAME":"三民里","VILLCODE":"68000020048","TOWNNAME":"中壢區","COUNTYNAME":"桃園市"},"geometry":{"type":"Polygon","coordinates":[[[121.21271862165483,24.982953827776456],[121.21256079487229,24.981467298380267],[121.21360245163707,24.979363719046034],[121.21082470026431,24.9779052373743],[121.21341305949802,24.974707796786273],[121.21486506589743,24.971482308473785],[121.21252922951578,24.972043262962913],[121.21256079487229,24.969210442792814],[121.21391810520217,24.966041049929242],[121.2129395791504,24.965788620409132],[121.21319210200247,24.964947188675442],[121.21013026242112,24.964274043288487],[121.21199261845513,24.962563132096648],[121.21114035382939,24.96152536629176],[121.2111719191859,24.959365691508616],[121.20795225282201,24.96152536629176],[121.20709998819628,24.962254607127626],[121.20315431863267,24.967162958907497],[121.20189170437233,24.970248208597702],[121.20056595939896,24.97167864254498],[121.19766194660015,24.971706690269436],[121.19690437804394,24.971089640331396],[121.19510515272293,24.972183501585196],[121.19450541094928,24.973557840083558],[121.19261148955874,24.97364198325693],[121.19311653526289,24.977512569231912],[121.19636776698329,24.977175996538435],[121.19924021442559,24.977764998752022],[121.20372249504983,24.981411202931355],[121.20694216141372,24.98270139825635],[121.20782599139598,24.981299012033528],[121.20959365136046,24.981775823349288],[121.20949895529094,24.9824770164607],[121.21271862165483,24.982953827776456]]]}},{"type":"Feature","properties":{"VILLNAME":"內厝里","VILLCODE":"68000020051","TOWNNAME":"中壢區","COUNTYNAME":"桃園市"},"geometry":{"type":"Polygon","coordinates":[[[121.17976438945968,24.991115715593274],[121.18011160838127,24.989376756676975],[121.18102700372002,24.989488947574802],[121.18109013443303,24.990302331584036],[121.18427823544043,24.98847922949437],[121.18560398041379,24.989937711166103],[121.18686659467414,24.99049866565523],[121.18705598681319,24.98979747254382],[121.18835016643006,24.99044257020632],[121.18970747675993,24.989853567992736],[121.18920243105579,24.99114376331773],[121.19049661067265,24.992321767744897],[121.19147513672442,24.992321767744897],[121.19163296350698,24.99378024941663],[121.19330592740194,24.99349977217207],[121.19333749275845,24.991564479184575],[121.19412662667116,24.991564479184575],[121.1935268848975,24.990021854339474],[121.19359001561051,24.98340259136776],[121.19321123133241,24.982645302807438],[121.19343218882797,24.980233198504184],[121.19311653526289,24.977512569231912],[121.19261148955874,24.97364198325693],[121.19220113992412,24.97173473799389],[121.18989686889898,24.971145735780308],[121.18841329714307,24.969687254108575],[121.18632998361349,24.968369011059124],[121.1841835393709,24.96775196112108],[121.18301562118008,24.96808853381456],[121.18206866048482,24.969294585966185],[121.18077448086795,24.96940677686401],[121.18071135015494,24.96940677686401],[121.18061665408541,24.96949092003738],[121.1791330823295,24.970528685842268],[121.1784070791298,24.970248208597702],[121.17799672949518,24.972407883380846],[121.17641846166974,24.974904130857468],[121.17389323314904,24.977708903303107],[121.17092608963722,24.982869684603088],[121.16830616504699,24.987918275005242],[121.1672329429257,24.990330379308492],[121.16846399182953,24.991340097388925],[121.16843242647302,24.992518101816092],[121.16776955398633,24.993527819896524],[121.17146270069786,24.99240591091827],[121.17180991961946,24.991901051878052],[121.17187305033248,24.99192909960251],[121.17209400782804,24.99223762457153],[121.17578715453956,24.99089133379762],[121.17727072629548,24.99184495642914],[121.17963812803363,24.990779142899797],[121.17976438945968,24.991115715593274]]]}},{"type":"Feature","properties":{"VILLNAME":"過嶺里","VILLCODE":"68000020043","TOWNNAME":"中壢區","COUNTYNAME":"桃園市"},"geometry":{"type":"Polygon","coordinates":[[[121.16830616504699,24.987918275005242],[121.17092608963722,24.982869684603088],[121.17389323314904,24.977708903303107],[121.17641846166974,24.974904130857468],[121.17799672949518,24.972407883380846],[121.1784070791298,24.970248208597702],[121.1791330823295,24.970528685842268],[121.18061665408541,24.96949092003738],[121.18071135015494,24.96940677686401],[121.17888055947742,24.969518967761836],[121.17884899412091,24.96747148387652],[121.1784386444863,24.966854433938476],[121.17774420664311,24.962478988923277],[121.17802829485169,24.961609509465127],[121.17714446486944,24.960543695935783],[121.17802829485169,24.959674216477637],[121.1769866380869,24.95914130971296],[121.16855868789905,24.958019400734706],[121.16568624045676,24.95768282804123],[121.16574937116978,24.957963305285794],[121.16290848908399,24.960711982282522],[121.16139335197157,24.96180584353632],[121.15823681632068,24.962282654852082],[121.15397549319201,24.963516754728165],[121.1514502646713,24.965003284124354],[121.15416488533106,24.9687055837526],[121.15631132957365,24.97080916308683],[121.15877342738133,24.973277362838996],[121.16095143698044,24.974062699123774],[121.16164587482363,24.975801658040073],[121.16234031266683,24.979139337250384],[121.1636660576402,24.98160753700255],[121.16372918835322,24.98166363245146],[121.16385544977925,24.982252634665045],[121.16578093652629,24.98441230944819],[121.16631754758693,24.98559031387536],[121.16641224365647,24.985842743395466],[121.16830616504699,24.987918275005242]]]}},{"type":"Feature","properties":{"VILLNAME":"芝芭里","VILLCODE":"68000020046","TOWNNAME":"中壢區","COUNTYNAME":"桃園市"},"geometry":{"type":"Polygon","coordinates":[[[121.21123504989892,25.00098851460193],[121.21139287668146,25.000287321490518],[121.21423375876725,24.996416735515535],[121.21461254304536,24.995266778812823],[121.21704307549653,24.993022960856308],[121.21720090227907,24.991171811042186],[121.21518071946252,24.989545043023714],[121.21448628161933,24.98856337266774],[121.21319210200247,24.985169598008515],[121.21271862165483,24.982953827776456],[121.20949895529094,24.9824770164607],[121.20959365136046,24.981775823349288],[121.20782599139598,24.981299012033528],[121.20694216141372,24.98270139825635],[121.20372249504983,24.981411202931355],[121.19924021442559,24.977764998752022],[121.19636776698329,24.977175996538435],[121.19311653526289,24.977512569231912],[121.19343218882797,24.980233198504184],[121.19321123133241,24.982645302807438],[121.19359001561051,24.98340259136776],[121.1935268848975,24.990021854339474],[121.19412662667116,24.991564479184575],[121.19381097310608,24.99364001079435],[121.19409506131466,24.99574359012858],[121.19396879988862,25.001156800948667],[121.19485262987087,25.004522527883438],[121.19523141414898,25.006934632186688],[121.19753568517412,25.00606515272854],[121.2011025704596,25.006654154942126],[121.20126039724215,25.00511153009702],[121.20375406040634,25.005588341412782],[121.20766816461342,25.002278709926923],[121.20769972996993,25.001886041784534],[121.21013026242112,25.00191408950899],[121.21107722311638,25.001437278193233],[121.21123504989892,25.00098851460193]]]}},{"type":"Feature","properties":{"VILLNAME":"永光里","VILLCODE":"68000020055","TOWNNAME":"中壢區","COUNTYNAME":"桃園市"},"geometry":{"type":"Polygon","coordinates":[[[121.21360245163707,24.979363719046034],[121.21518071946252,24.977484521507456],[121.21739029441814,24.976951614742784],[121.21675898728796,24.974371224092796],[121.2169168140705,24.972716408349868],[121.21896856224357,24.970304304046614],[121.2183372551134,24.967892199743364],[121.21985239222582,24.966405670347175],[121.21966300008677,24.965143522746637],[121.21903169295659,24.96567642951131],[121.216885248714,24.965059379573265],[121.21697994478352,24.964666711430876],[121.21300270986342,24.963628945625988],[121.21199261845513,24.962563132096648],[121.21013026242112,24.964274043288487],[121.21319210200247,24.964947188675442],[121.2129395791504,24.965788620409132],[121.21391810520217,24.966041049929242],[121.21256079487229,24.969210442792814],[121.21252922951578,24.972043262962913],[121.21486506589743,24.971482308473785],[121.21341305949802,24.974707796786273],[121.21082470026431,24.9779052373743],[121.21360245163707,24.979363719046034]]]}},{"type":"Feature","properties":{"VILLNAME":"五權里","VILLCODE":"68000020044","TOWNNAME":"中壢區","COUNTYNAME":"桃園市"},"geometry":{"type":"Polygon","coordinates":[[[121.19261148955874,24.97364198325693],[121.19450541094928,24.973557840083558],[121.19510515272293,24.972183501585196],[121.19690437804394,24.971089640331396],[121.19766194660015,24.971706690269436],[121.20056595939896,24.97167864254498],[121.20189170437233,24.970248208597702],[121.20315431863267,24.967162958907497],[121.20709998819628,24.962254607127626],[121.20795225282201,24.96152536629176],[121.20709998819628,24.959674216477637],[121.20697372677023,24.957458446245578],[121.20378562576285,24.957234064449928],[121.20353310291078,24.95754258941895],[121.20091317832055,24.957570637143405],[121.19974526012973,24.957093825827645],[121.19478949915785,24.957177969001016],[121.1939056691756,24.957486493970034],[121.19153826743745,24.959449834681983],[121.19150670208094,24.959618121028722],[121.19150670208094,24.959646168753178],[121.19144357136791,24.960207123242306],[121.189959999612,24.960768077731437],[121.19106478708981,24.965844715858047],[121.19112791780283,24.9697994450064],[121.19052817602916,24.97122987895368],[121.18989686889898,24.971145735780308],[121.19220113992412,24.97173473799389],[121.19261148955874,24.97364198325693]]]}},{"type":"Feature","properties":{"VILLNAME":"五福里","VILLCODE":"68000020064","TOWNNAME":"中壢區","COUNTYNAME":"桃園市"},"geometry":{"type":"Polygon","coordinates":[[[121.20795225282201,24.96152536629176],[121.2111719191859,24.959365691508616],[121.21442315090631,24.956476775889605],[121.21328679807199,24.95605606002276],[121.21041435062969,24.956420680440694],[121.20820477567408,24.95737430307221],[121.20697372677023,24.957458446245578],[121.20709998819628,24.959674216477637],[121.20795225282201,24.96152536629176]]]}}]},"COUNCIL_DISTRICTS":{"第7選區":{"name":"第7選區","covers":["中壢區 (整區)"],"seats":11,"incumbents":[{"name":"彭俊豪","party":"dpp","votes":21667},{"name":"邱奕勝","party":"kmt","votes":18129},{"name":"魏筠","party":"dpp","votes":16042},{"name":"梁為超","party":"kmt","votes":12597},{"name":"葉明月","party":"kmt","votes":12066},{"name":"謝美英","party":"indep","votes":11751},{"name":"吳嘉和","party":"kmt","votes":10546},{"name":"劉曾玉春","party":"indep","votes":10382},{"name":"張曉昀","party":"dpp","votes":10359},{"name":"黃崇真","party":"dpp","votes":9660},{"name":"徐景文","party":"dpp","votes":9647}],"candidates_2026":[]}},"ROADS":[{"name":"台66線","ref":"台66","label":"台66 東西向快速道路","level":2,"class":"expressway","coords":[[121.15,24.957],[121.165,24.962],[121.18,24.965],[121.2,24.967],[121.22,24.97]]},{"name":"中山東路二段","ref":"","label":"中山東路二段","level":3,"class":"primary","coords":[[121.155,24.975],[121.17,24.978],[121.185,24.98]]},{"name":"中山東路三段","ref":"","label":"中山東路三段","level":3,"class":"primary","coords":[[121.185,24.98],[121.2,24.985],[121.215,24.99]]},{"name":"環中東路一段","ref":"","label":"環中東路","level":3,"class":"primary","coords":[[121.16,24.998],[121.175,25.0],[121.19,25.002]]},{"name":"山東路","ref":"","label":"山東路","level":4,"class":"secondary","coords":[[121.171,24.995],[121.171,25.005],[121.171,25.018]]},{"name":"月眉路","ref":"","label":"月眉路","level":4,"class":"secondary","coords":[[121.186,25.0],[121.186,25.01]]},{"name":"過嶺路","ref":"","label":"過嶺路","level":5,"class":"tertiary","coords":[[121.16,24.965],[121.17,24.97],[121.18,24.978]]},{"name":"三民路","ref":"","label":"三民路","level":5,"class":"tertiary","coords":[[121.198,24.968],[121.205,24.975],[121.21,24.982]]},{"name":"五權路","ref":"","label":"五權路","level":5,"class":"tertiary","coords":[[121.19,24.96],[121.198,24.965]]}]};
+
+/* === Mercator-ish projection (small area: equirectangular w/ cosLat) === */
+const bbox = DATA.meta.bbox;  // [w, s, e, n]
+const PAD_DEG = 0.003;  // 視窗外緣留白 (~330 m)
+const W = bbox[0] - PAD_DEG, S = bbox[1] - PAD_DEG;
+const E = bbox[2] + PAD_DEG, N = bbox[3] + PAD_DEG;
+const midLat = (S + N) / 2;
+const cosLat = Math.cos(midLat * Math.PI / 180);
+
+const VIEW_W = 1000;
+const lngSpan = (E - W) * cosLat;
+const latSpan = N - S;
+const VIEW_H = VIEW_W * latSpan / lngSpan;
+
+function project(lng, lat){
+  return [
+    ((lng - W) * cosLat / lngSpan) * VIEW_W,
+    ((N - lat) / latSpan) * VIEW_H,
+  ];
+}
+
+/* === Render === */
+const svg = document.getElementById('mapsvg');
+const NS = "http://www.w3.org/2000/svg";
+
+let view = { tx:0, ty:0, scale:1 };
+function applyTransform(){
+  const g = svg.querySelector('g.world');
+  if (g) g.setAttribute('transform', `translate(${view.tx} ${view.ty}) scale(${view.scale})`);
+  updateScaleBar();
+}
+
+function pointsFromRing(ring){
+  return ring.map(([lng,lat]) => project(lng,lat).join(',')).join(' ');
+}
+
+function buildMap(){
+  svg.setAttribute('viewBox', `0 0 ${VIEW_W} ${VIEW_H}`);
+
+  const g = document.createElementNS(NS,'g');
+  g.setAttribute('class','world');
+
+  // village polygons
+  const colorOf = {};
+  DATA.VILLAGES.forEach(v => colorOf[v.name] = v.color);
+
+  DATA.GEOJSON.features.forEach(f => {
+    const name = f.properties.VILLNAME;
+    const geom = f.geometry;
+    const wrap = document.createElementNS(NS,'g');
+    wrap.setAttribute('class','village');
+    wrap.dataset.name = name;
+    const color = colorOf[name] || 'var(--v-1)';
+
+    const rings = geom.type === 'Polygon' ? [geom.coordinates] : geom.coordinates;
+    rings.forEach(poly => {
+      const path = document.createElementNS(NS,'polygon');
+      path.setAttribute('points', pointsFromRing(poly[0]));
+      path.setAttribute('fill', color);
+      path.setAttribute('stroke', '#7a5a3a');
+      path.setAttribute('stroke-width', '0.6');
+      path.setAttribute('stroke-linejoin', 'round');
+      wrap.appendChild(path);
+    });
+
+    wrap.addEventListener('click', e => { e.stopPropagation(); selectVillage(name); });
+    g.appendChild(wrap);
+  });
+
+  // 道路圖層 (在里之上)
+  const roadsG = document.createElementNS(NS,'g');
+  roadsG.setAttribute('class','roads');
+  roadsG.id = 'roads-layer';
+  // 先 casing (白邊),再主線
+  for (const r of (DATA.ROADS || [])){
+    const lv = r.level || 5;
+    const pts = r.coords.map(([lng,lat]) => project(lng,lat).join(',')).join(' ');
+    const casing = document.createElementNS(NS,'polyline');
+    casing.setAttribute('class', `road-casing lv${lv}`);
+    casing.setAttribute('points', pts);
+    roadsG.appendChild(casing);
+  }
+  for (const r of (DATA.ROADS || [])){
+    const lv = r.level || 5;
+    const pts = r.coords.map(([lng,lat]) => project(lng,lat).join(',')).join(' ');
+    const line = document.createElementNS(NS,'polyline');
+    line.setAttribute('class', `road-line lv${lv}`);
+    line.setAttribute('points', pts);
+    roadsG.appendChild(line);
+  }
+  // 道路標籤 (放在最長線段中點,旋轉貼合方向)
+  for (const r of (DATA.ROADS || [])){
+    if (!r.label || r.coords.length < 2) continue;
+    // 找最長的子線段
+    let maxL = 0, mid = null, ang = 0;
+    for (let i=0; i<r.coords.length-1; i++){
+      const [x1,y1] = project(...r.coords[i]);
+      const [x2,y2] = project(...r.coords[i+1]);
+      const dx = x2-x1, dy = y2-y1;
+      const L = Math.hypot(dx, dy);
+      if (L > maxL){
+        maxL = L;
+        mid = [(x1+x2)/2, (y1+y2)/2];
+        ang = Math.atan2(dy, dx) * 180/Math.PI;
+        // keep label upright (avoid upside-down)
+        if (ang > 90) ang -= 180;
+        if (ang < -90) ang += 180;
+      }
+    }
+    if (!mid || maxL < 30) continue;  // 太短不放標
+    const t = document.createElementNS(NS,'text');
+    t.setAttribute('class','road-label');
+    t.setAttribute('x', mid[0]);
+    t.setAttribute('y', mid[1] - 3);
+    t.setAttribute('text-anchor','middle');
+    t.setAttribute('transform', `rotate(${ang.toFixed(1)} ${mid[0]} ${mid[1]})`);
+    t.textContent = r.label;
+    roadsG.appendChild(t);
+  }
+  g.appendChild(roadsG);
+
+  // labels (里名,在最頂層)
+  DATA.VILLAGES.forEach(v => {
+    const [x,y] = project(v.centroid[0], v.centroid[1]);
+    const t = document.createElementNS(NS,'text');
+    t.setAttribute('class','village-label');
+    t.setAttribute('x', x);
+    t.setAttribute('y', y + 4);
+    t.textContent = v.name;
+    g.appendChild(t);
+  });
+
+  // me marker placeholder (hidden until geolocation)
+  const meRing = document.createElementNS(NS,'circle');
+  meRing.setAttribute('class','me-ring');
+  meRing.id = 'me-ring';
+  meRing.setAttribute('r','6');
+  meRing.style.display = 'none';
+  g.appendChild(meRing);
+
+  const meDot = document.createElementNS(NS,'circle');
+  meDot.setAttribute('class','me-dot');
+  meDot.id = 'me-dot';
+  meDot.setAttribute('r','6');
+  meDot.style.display = 'none';
+  g.appendChild(meDot);
+
+  svg.appendChild(g);
+  applyTransform();
+}
+
+/* === Scale bar (動態算當前縮放下 60 svg-units 對應幾公尺) === */
+function updateScaleBar(){
+  // 60 svg-units in pixels at current scale
+  const svgUnitsPerMeterInLngAtMidLat =
+    (VIEW_W) / (lngSpan * 111000);  // 1 metre = ? svg-units (lng axis)
+  // After scale, 60 svg-units = 60 / scale svg-units in original
+  // Actually we want: how many real metres does 60 displayed svg-units span?
+  const realMetersPer60Units = 60 / view.scale / svgUnitsPerMeterInLngAtMidLat;
+  let label;
+  if (realMetersPer60Units >= 1000) label = (realMetersPer60Units/1000).toFixed(1) + ' km';
+  else label = Math.round(realMetersPer60Units) + ' m';
+  document.getElementById('scale-label').textContent = label;
+}
+
+/* === 選里 === */
+let selectedName = null;
+function selectVillage(name){
+  const v = DATA.VILLAGES.find(x => x.name === name);
+  if (!v){
+    // possibly outside-area village, just bring user there if known
+    return;
+  }
+  selectedName = name;
+  svg.querySelectorAll('.village').forEach(el => {
+    el.classList.toggle('selected', el.dataset.name === name);
+  });
+  renderInfo(v);
+  document.getElementById('info').classList.add('open');
+  hideHint();
+}
+
+function partyLabel(p){
+  const m = {kmt:"國民黨",dpp:"民進黨",tpp:"民眾黨",npp:"時代力量",indep:"無黨籍"};
+  return p ? `<span class="party ${p}">${m[p]||p}</span>` : '';
+}
+
+function personHTML(p, kind){
+  return `<div class="person ${kind}">
+    <div class="avatar">${(p.name||'?').charAt(0)}</div>
+    <div class="body">
+      <div class="name">${p.name}${partyLabel(p.party)}</div>
+      <div class="role">${p.role||''}</div>
+      ${p.phone?`<div class="extra">☎ ${p.phone}</div>`:''}
+      ${p.office?`<div class="extra">⌂ ${p.office}</div>`:''}
+      ${p.term?`<div class="extra">${p.term}</div>`:''}
+    </div>
+  </div>`;
+}
+
+function renderInfo(v){
+  const cd = DATA.COUNCIL_DISTRICTS[v.council_district] || {};
+  const inAreaNbrs = v.neighbors || [];
+  const outsideNbrs = (v.all_neighbors || []).filter(n => !inAreaNbrs.includes(n));
+
+  document.getElementById('info-content').innerHTML = `
+    <div class="v-header">
+      <div class="v-eyebrow">桃園市 / ${v.district}</div>
+      <div class="v-name">${v.name} <span class="district">${v.council_district}</span></div>
+    </div>
+
+    <div class="section">
+      <h3>里長</h3>
+      ${personHTML({...v.village_chief, role:'里長'}, 'incumbent')}
+    </div>
+
+    <div class="section">
+      <h3>現任議員 · ${v.council_district}</h3>
+      ${(cd.incumbents||[]).length === 0
+        ? '<div class="empty">(待補,需議員選區對應表)</div>'
+        : (cd.incumbents||[]).map(p => personHTML({...p, role:'現任'}, 'incumbent')).join('')}
+    </div>
+
+    <div class="section">
+      <h3>2026 候選人 · ${v.council_district}</h3>
+      ${(cd.candidates_2026||[]).length === 0
+        ? '<div class="empty">(2026 登記期約於投票前 50 天)</div>'
+        : (cd.candidates_2026||[]).map(p => personHTML({...p, role:'登記候選'}, 'candidate')).join('')}
+    </div>
+
+    <div class="section">
+      <h3>主要道路</h3>
+      ${(v.main_roads||[]).length === 0
+        ? '<div class="empty">(待補)</div>'
+        : `<div class="taglist">${v.main_roads.map(r=>`<span class="tag road">${r}</span>`).join('')}</div>`}
+    </div>
+
+    <div class="section">
+      <h3>相鄰里 · 點擊跳轉</h3>
+      <div class="taglist">
+        ${inAreaNbrs.map(n=>`<span class="tag" data-jump="${n}">${n}</span>`).join('')}
+        ${outsideNbrs.map(n=>`<span class="tag outside" title="不在當前範圍">${n} 〉</span>`).join('')}
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>地區概略</h3>
+      <p class="intro-text">${v.intro || '(尚無資料)'}</p>
+    </div>
+  `;
+
+  document.getElementById('info-content').querySelectorAll('[data-jump]').forEach(el => {
+    el.addEventListener('click', () => selectVillage(el.dataset.jump));
+  });
+}
+
+document.getElementById('close-info').addEventListener('click', () => {
+  document.getElementById('info').classList.remove('open');
+  selectedName = null;
+  svg.querySelectorAll('.village').forEach(el => el.classList.remove('selected'));
+});
+
+/* === 道路顯示 === */
+const roadsBtn = document.getElementById('toggle-roads');
+roadsBtn.addEventListener('click', () => {
+  const on = roadsBtn.classList.toggle('active');
+  const layer = document.getElementById('roads-layer');
+  if (layer) layer.classList.toggle('show', on);
+  if (on && (!DATA.ROADS || DATA.ROADS.length === 0)){
+    showHint('沒有道路資料 — 請在 WSL 跑 extract_roads_v14.py');
+  }
+});
+
+/* === 搜尋 === */
+const searchInput = document.getElementById('search');
+const searchResults = document.getElementById('search-results');
+searchInput.addEventListener('input', () => {
+  const q = searchInput.value.trim();
+  if (!q){ searchResults.classList.remove('show'); return; }
+  const hits = DATA.VILLAGES.filter(v =>
+    v.name.includes(q) || v.district.includes(q) ||
+    (v.village_chief && v.village_chief.name && v.village_chief.name.includes(q))
+  ).slice(0, 8);
+  searchResults.innerHTML = hits.length
+    ? hits.map(v => `<div class="item" data-name="${v.name}">
+        <div>${v.name}</div>
+        <div class="meta">${v.district} · ${v.council_district}</div>
+      </div>`).join('')
+    : '<div class="item" style="color:var(--ink-soft)">查無相符結果</div>';
+  searchResults.classList.add('show');
+});
+searchResults.addEventListener('click', e => {
+  const item = e.target.closest('.item');
+  if (item && item.dataset.name){
+    selectVillage(item.dataset.name);
+    searchInput.value = '';
+    searchResults.classList.remove('show');
+  }
+});
+document.addEventListener('click', e => {
+  if (!e.target.closest('.search-wrap')) searchResults.classList.remove('show');
+});
+
+/* === 縮放/平移 (滑鼠 + 觸控) === */
+function clampScale(s){ return Math.max(0.5, Math.min(20, s)); }
+
+function zoomBy(factor, cx, cy){
+  const newScale = clampScale(view.scale * factor);
+  if (cx === undefined){ cx = svg.clientWidth/2; cy = svg.clientHeight/2; }
+  const pt = svg.createSVGPoint();
+  pt.x = cx; pt.y = cy;
+  const ctm = svg.getScreenCTM().inverse();
+  const svgP = pt.matrixTransform(ctm);
+  const wx = (svgP.x - view.tx) / view.scale;
+  const wy = (svgP.y - view.ty) / view.scale;
+  view.scale = newScale;
+  view.tx = svgP.x - wx * newScale;
+  view.ty = svgP.y - wy * newScale;
+  applyTransform();
+}
+
+document.getElementById('zoom-in').addEventListener('click', () => zoomBy(1.4));
+document.getElementById('zoom-out').addEventListener('click', () => zoomBy(1/1.4));
+document.getElementById('reset-view').addEventListener('click', () => {
+  view = {tx:0,ty:0,scale:1}; applyTransform();
+});
+
+let drag = null;
+svg.addEventListener('mousedown', e => {
+  if (e.target.closest('.village')) return;
+  drag = {x:e.clientX, y:e.clientY, tx0:view.tx, ty0:view.ty};
+});
+window.addEventListener('mousemove', e => {
+  if (!drag) return;
+  const ctm = svg.getScreenCTM().inverse();
+  view.tx = drag.tx0 + (e.clientX - drag.x) * ctm.a;
+  view.ty = drag.ty0 + (e.clientY - drag.y) * ctm.d;
+  applyTransform();
+});
+window.addEventListener('mouseup', () => drag = null);
+
+svg.addEventListener('wheel', e => {
+  e.preventDefault();
+  zoomBy(e.deltaY < 0 ? 1.15 : 1/1.15, e.clientX, e.clientY);
+}, {passive:false});
+
+let touch = null;
+svg.addEventListener('touchstart', e => {
+  if (e.touches.length === 1){
+    const t = e.touches[0];
+    touch = {mode:'pan', x:t.clientX, y:t.clientY, tx0:view.tx, ty0:view.ty,
+             startedOnVillage: !!e.target.closest('.village'),
+             startTime: Date.now()};
+  } else if (e.touches.length === 2){
+    const [a,b] = e.touches;
+    touch = {mode:'pinch',
+             d0: Math.hypot(a.clientX-b.clientX, a.clientY-b.clientY),
+             scale0: view.scale,
+             cx:(a.clientX+b.clientX)/2, cy:(a.clientY+b.clientY)/2,
+             tx0:view.tx, ty0:view.ty};
+  }
+}, {passive:true});
+
+svg.addEventListener('touchmove', e => {
+  if (!touch) return;
+  e.preventDefault();
+  if (touch.mode==='pan' && e.touches.length===1){
+    const t = e.touches[0];
+    const ctm = svg.getScreenCTM().inverse();
+    view.tx = touch.tx0 + (t.clientX - touch.x) * ctm.a;
+    view.ty = touch.ty0 + (t.clientY - touch.y) * ctm.d;
+    applyTransform();
+    touch.moved = true;
+  } else if (touch.mode==='pinch' && e.touches.length===2){
+    const [a,b] = e.touches;
+    const d = Math.hypot(a.clientX-b.clientX, a.clientY-b.clientY);
+    const newScale = clampScale(touch.scale0 * d / touch.d0);
+    const pt = svg.createSVGPoint();
+    pt.x = touch.cx; pt.y = touch.cy;
+    const ctm = svg.getScreenCTM().inverse();
+    const svgP = pt.matrixTransform(ctm);
+    const wx = (svgP.x - touch.tx0) / touch.scale0;
+    const wy = (svgP.y - touch.ty0) / touch.scale0;
+    view.scale = newScale;
+    view.tx = svgP.x - wx * newScale;
+    view.ty = svgP.y - wy * newScale;
+    applyTransform();
+  }
+}, {passive:false});
+
+svg.addEventListener('touchend', () => touch = null);
+svg.addEventListener('touchcancel', () => touch = null);
+
+/* === 提示 === */
+let hintTimer = null;
+function showHint(text, ms=2200){
+  const h = document.getElementById('hint');
+  if (!text){ h.classList.remove('show'); return; }
+  h.textContent = text;
+  h.classList.add('show');
+  clearTimeout(hintTimer);
+  hintTimer = setTimeout(() => h.classList.remove('show'), ms);
+}
+function hideHint(){ document.getElementById('hint').classList.remove('show'); }
+
+/* === 定位 === */
+const meBtn = document.getElementById('locate-me');
+let watchId = null;
+meBtn.addEventListener('click', () => {
+  if (watchId !== null){
+    navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+    document.getElementById('me-dot').style.display = 'none';
+    document.getElementById('me-ring').style.display = 'none';
+    meBtn.classList.remove('active');
+    return;
+  }
+  if (!navigator.geolocation){ showHint('裝置不支援定位'); return; }
+  meBtn.classList.add('active');
+  showHint('定位中...');
+  watchId = navigator.geolocation.watchPosition(
+    pos => {
+      const {longitude:lng, latitude:lat} = pos.coords;
+      // 是否在範圍內?
+      if (lng < W || lng > E || lat < S || lat > N){
+        showHint(`目前位置不在過嶺地區範圍內 (${lat.toFixed(4)}, ${lng.toFixed(4)})`, 4000);
+        meBtn.classList.remove('active');
+        return;
+      }
+      const [x,y] = project(lng,lat);
+      const dot = document.getElementById('me-dot');
+      const ring = document.getElementById('me-ring');
+      dot.setAttribute('cx', x); dot.setAttribute('cy', y); dot.style.display = '';
+      ring.setAttribute('cx', x); ring.setAttribute('cy', y); ring.style.display = '';
+      // 找到所在里
+      const here = pointInVillage(lng, lat);
+      if (here) showHint(`你在 ${here} 附近`, 3500);
+    },
+    err => {
+      showHint(`定位失敗: ${err.message}`, 3500);
+      meBtn.classList.remove('active');
+    },
+    {enableHighAccuracy:true, maximumAge:5000, timeout:10000}
+  );
+});
+
+function pointInVillage(lng, lat){
+  for (const f of DATA.GEOJSON.features){
+    if (pointInPolygon([lng,lat], f.geometry)){
+      return f.properties.VILLNAME;
+    }
+  }
+  return null;
+}
+function pointInPolygon(p, geom){
+  const rings = geom.type==='Polygon' ? [geom.coordinates] : geom.coordinates;
+  for (const poly of rings){
+    if (rayCast(p, poly[0])) return true;
+  }
+  return false;
+}
+function rayCast(point, ring){
+  let inside = false;
+  for (let i=0, j=ring.length-1; i<ring.length; j=i++){
+    const [xi,yi] = ring[i], [xj,yj] = ring[j];
+    if (((yi>point[1]) !== (yj>point[1])) &&
+        (point[0] < (xj-xi)*(point[1]-yi)/(yj-yi)+xi)){
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+/* === 鍵盤 === */
+window.addEventListener('keydown', e => {
+  if (e.key === 'Escape') document.getElementById('close-info').click();
+  if (e.key === '+' || e.key === '=') zoomBy(1.3);
+  if (e.key === '-') zoomBy(1/1.3);
+});
+
+/* === 啟動 === */
+buildMap();
+setTimeout(() => showHint('點擊任一里查看里長/議員/介紹', 3500), 600);
+
+/* ===========================================================
+ * PWA: 註冊 service worker + 安裝橫幅
+ * =========================================================== */
+let deferredInstallPrompt = null;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  showInstallBanner('android');
+});
+
+window.addEventListener('appinstalled', () => {
+  hideInstallBanner();
+  deferredInstallPrompt = null;
+  showHint('已安裝到主畫面 — 之後可離線使用', 3000);
+});
+
+function showInstallBanner(kind){
+  if (sessionStorage.getItem('install-banner-dismissed')) return;
+  if (window.matchMedia('(display-mode: standalone)').matches) return;
+  if (window.navigator.standalone === true) return;  // iOS already installed
+
+  const div = document.createElement('div');
+  div.id = 'install-banner';
+  div.innerHTML = kind === 'ios'
+    ? '<span>📲 加到主畫面後可離線使用 →</span>' +
+      '<span class="ios-hint">點下方「分享 ⬆」→「加入主畫面」</span>' +
+      '<button id="bn-close">×</button>'
+    : '<span>📲 加到主畫面 (離線可用)</span>' +
+      '<button id="bn-install">安裝</button>' +
+      '<button id="bn-close">×</button>';
+  document.body.appendChild(div);
+  const close = () => {
+    div.remove();
+    sessionStorage.setItem('install-banner-dismissed','1');
+  };
+  document.getElementById('bn-close').addEventListener('click', close);
+  const inst = document.getElementById('bn-install');
+  if (inst) inst.addEventListener('click', async () => {
+    if (!deferredInstallPrompt) return;
+    deferredInstallPrompt.prompt();
+    const { outcome } = await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+    if (outcome === 'accepted') close();
+  });
+}
+function hideInstallBanner(){
+  const b = document.getElementById('install-banner');
+  if (b) b.remove();
+}
+
+// iOS 沒 beforeinstallprompt 事件,自己偵測一次性顯示
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+const isStandalone = window.navigator.standalone === true ||
+                     window.matchMedia('(display-mode: standalone)').matches;
+if (isIOS && !isStandalone){
+  setTimeout(() => showInstallBanner('ios'), 3500);
+}
+
+// 註冊 service worker
+if ('serviceWorker' in navigator){
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .then((reg) => {
+        console.log('SW registered, scope:', reg.scope);
+      })
+      .catch((err) => console.warn('SW failed:', err));
+  });
+}
+</script>
+
+<style>
+#install-banner{
+  position: fixed;
+  left: 12px; right: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  background: #2a2520;
+  color: #fff8ee;
+  padding: 12px 14px;
+  border-radius: 12px;
+  z-index: 200;
+  display: flex; align-items: center; gap: 10px;
+  font-size: 13px;
+  box-shadow: 0 8px 24px -6px rgba(0,0,0,.4);
+  animation: slideUp .4s ease;
+}
+#install-banner .ios-hint{
+  font-size: 11px; opacity: .75;
+  margin-left: 4px; flex: 1;
+}
+#install-banner span:first-child{ flex: 1 }
+#install-banner button{
+  background: #c89243; color: #2a2520;
+  border: none; padding: 6px 14px;
+  border-radius: 6px; font-weight: 700;
+  font-size: 13px; cursor: pointer;
+  font-family: inherit;
+}
+#install-banner #bn-close{
+  background: transparent; color: #fff8ee;
+  font-size: 18px; padding: 0 8px;
+  font-weight: 400;
+}
+@keyframes slideUp{
+  from{ transform: translateY(100%); opacity: 0; }
+  to  { transform: translateY(0);    opacity: 1; }
+}
+</style>
+</body>
+</html>
